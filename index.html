@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>オンプレ→クラウド 段階移行プレイブック — 検査を止めずに LIS を移す</title>
+<meta name="description" content="稼働中の臨床検査部門システム（LIS）を止めずにクラウドへ移すための段階移行プレイブック。評価→PoC→並行稼働→切替→旧環境廃止の5フェーズ、AWS 7R の検査業務への当てはめ、データ移行（DMS/DataSync）とロールバック基準を、医療DXシリーズの一編として整理。">
+<link rel="canonical" href="https://kioh-daiv.github.io/lis-cloud-migration-playbook/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="X Harumi 医療DX シリーズ">
+<meta property="og:title" content="オンプレ→クラウド 段階移行プレイブック — 検査を止めずに LIS を移す">
+<meta property="og:description" content="稼働中の LIS を止めずにクラウドへ移す段階移行プレイブック。5フェーズ・AWS 7R・データ移行・ロールバック基準。">
+<meta property="og:url" content="https://kioh-daiv.github.io/lis-cloud-migration-playbook/">
+<meta property="og:image" content="https://kioh-daiv.github.io/medical-dx-cloud-guides/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="オンプレ→クラウド 段階移行プレイブック">
+<meta name="twitter:description" content="稼働中の LIS を止めずにクラウドへ移す段階移行プレイブック。5フェーズ・AWS 7R・データ移行・ロールバック基準。">
+<meta name="twitter:image" content="https://kioh-daiv.github.io/medical-dx-cloud-guides/og.png">
+<style>
+:root{
+  --primary:#0e4d92; --primary-light:#2563eb; --accent:#0d9488; --accent2:#14b8a6;
+  --phase:#0d9488; --phase-bg:#f0fdfa; --phase-bd:#99f6e4;
+  --warn:#d97706; --warn-bg:#fffbeb; --warn-bd:#fde68a;
+  --ok:#059669; --ok-bg:#ecfdf5; --ok-bd:#a7f3d0;
+  --danger:#dc2626; --danger-bg:#fef2f2; --danger-bd:#fecaca;
+  --bg:#f8fafc; --bg-card:#fff; --text:#1f2937; --text-soft:#6b7280; --border:#e5e7eb;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Hiragino Sans","Yu Gothic","Meiryo",-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.75;font-size:15px}
+.wrap{max-width:1000px;margin:0 auto;padding:0 20px}
+a{color:var(--primary-light)}
+code{background:#f1f5f9;border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:12.5px;font-family:"SFMono-Regular",Consolas,monospace}
+
+header{background:linear-gradient(135deg,#0e4d92 0%,#0f766e 55%,#0d9488 100%);color:#fff;padding:52px 0 42px;text-align:center}
+header .tag{display:inline-block;font-size:12.5px;font-weight:700;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);padding:4px 14px;border-radius:20px;margin-bottom:16px}
+header .tag .l{opacity:.85;font-weight:500}
+header h1{font-size:26px;font-weight:700;margin-bottom:12px;line-height:1.45}
+header p{font-size:14.5px;opacity:.93;max-width:800px;margin:0 auto}
+
+section{margin:30px 0}
+h2{font-size:20px;color:var(--primary);font-weight:700;margin:34px 0 14px;padding-bottom:9px;border-bottom:2px solid var(--accent);display:flex;align-items:center;gap:10px}
+h2 .n{background:var(--accent);color:#fff;font-size:14px;width:28px;height:28px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;flex:none}
+h3{font-size:16px;color:var(--primary);margin:20px 0 8px}
+p{margin:9px 0}
+.lead{color:var(--text-soft);font-size:14px}
+ul,ol{margin:8px 0 8px 22px}
+li{margin:5px 0}
+
+.intro{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:22px 26px;margin:28px 0 8px}
+.intro h2{margin-top:0;border:0;padding:0;font-size:17px}
+.callout{border-radius:10px;padding:15px 19px;margin:14px 0;background:var(--phase-bg);border:1px solid var(--phase-bd);border-left:4px solid var(--phase)}
+.callout .lab{font-size:12px;font-weight:700;letter-spacing:.06em;margin-bottom:4px;color:var(--phase)}
+.note{background:var(--warn-bg);border:1px solid var(--warn-bd);border-left:4px solid var(--warn);border-radius:10px;padding:14px 18px;margin:14px 0;font-size:13.5px}
+.note b{color:var(--warn)}
+
+/* フェーズ flow */
+.phases{display:flex;align-items:stretch;gap:5px;flex-wrap:wrap;margin:10px 0}
+.phases .s{flex:1;min-width:130px;background:var(--bg-card);border:1px solid var(--border);border-top:3px solid var(--phase);border-radius:9px;padding:12px 13px}
+.phases .s .ph{font-size:11px;font-weight:700;color:var(--phase);margin-bottom:3px}
+.phases .s .t{font-size:13.5px;font-weight:700;color:var(--primary);margin-bottom:4px}
+.phases .s .d{font-size:11.5px;color:var(--text-soft)}
+.phases .a{display:flex;align-items:center;color:var(--phase);font-weight:700}
+
+table{width:100%;border-collapse:collapse;font-size:13.5px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin:10px 0}
+th{background:var(--primary);color:#fff;font-weight:600;padding:10px 12px;text-align:left;font-size:12.5px}
+td{padding:10px 12px;border-top:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:#fafbfc}
+.r{font-weight:800;color:var(--accent);white-space:nowrap}
+
+.chk{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:8px 8px 8px 0}
+.chk li{list-style:none;margin:0;padding:9px 14px 9px 40px;position:relative;border-bottom:1px solid #f1f5f9;font-size:13.5px}
+.chk li:last-child{border-bottom:0}
+.chk li::before{content:"!";position:absolute;left:16px;top:9px;color:var(--danger);font-weight:700}
+.chk li b{color:var(--primary)}
+
+.gate{background:var(--danger-bg);border:1px solid var(--danger-bd);border-left:4px solid var(--danger);border-radius:10px;padding:14px 18px;margin:14px 0;font-size:13.5px}
+.gate b{color:var(--danger)}
+
+footer{margin:42px 0 60px}
+.refs{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:16px 20px;font-size:12.5px}
+.refs h3{margin-top:0}
+.refs ul{margin-left:18px} .refs li{margin:4px 0}
+.disc{max-width:820px;margin:16px auto 8px;font-size:11.5px;color:var(--text-soft);text-align:left;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px 18px}
+.sig{text-align:center;color:var(--text-soft);font-size:12.5px}
+.series-nav{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin:16px 0;font-size:13px;line-height:2.1}
+.series-nav b{color:var(--primary)} .series-nav a{margin:0 6px;color:var(--primary-light)}
+
+@media(max-width:720px){
+  header h1{font-size:20px}
+  .phases{flex-direction:column} .phases .a{transform:rotate(90deg);justify-content:center}
+  table{font-size:12px} th,td{padding:8px}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="tag">医療DX シリーズ <span class="l">／ 移行プレイブック</span></div>
+    <h1>オンプレ→クラウド 段階移行プレイブック<br>検査を止めずに LIS を移す</h1>
+    <p>「あるべき姿」は描けても、実務で最初に詰まるのは「<b>今 24/365 で動いている検査を止めずに、どう移すか</b>」。評価 → PoC → 並行稼働 → 切替 → 旧環境廃止の 5 フェーズ、AWS 7R の検査業務への当てはめ、データ移行とロールバック基準まで、移行のリスクを構造で押さえる。</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="series-nav">
+    <b>医療DX シリーズ：</b>
+    <a href="https://kioh-daiv.github.io/medical-dx-cloud-guides/">目次</a>
+    <a href="https://kioh-daiv.github.io/medical-dx-roadmap-overview/">① 工程表 全体像</a>
+    <a href="https://kioh-daiv.github.io/lis-cloud-compliance-guide/">② 法規制対応と技術要件</a>
+    <a href="https://kioh-daiv.github.io/lis-procurement-qualifications/">③ 受注資格</a>
+    <a href="https://kioh-daiv.github.io/lis-web-secure-implementation/">④ セキュア実装</a>
+    <a href="https://kioh-daiv.github.io/lis-data-integrity-guide/">データインテグリティ</a>
+    <a href="https://kioh-daiv.github.io/medical-dx-ai-regulation/">AI 活用</a>
+    <b style="margin-left:6px">★ 移行プレイブック（本編）</b>
+  </div>
+
+  <div class="intro">
+    <h2>なぜ「移行」を独立した観点で扱うのか</h2>
+    <p>シリーズ①〜④は「クラウドで LIS をどう作るべきか（あるべき姿）」を描いた。だが現場には<b>すでに動いているオンプレ LIS</b> があり、検査は土日も夜間も止まらない。「あるべき姿」と「今あるもの」の間には<b>移行という断層</b>がある。ここを設計せずに提案すると、机上論で止まる。</p>
+    <p>検査システムの移行が一般的な業務システムより難しいのは、<b>止められない（救急・時間外も稼働）・間違えられない（結果は診断の根拠）・戻れないと困る（切替失敗時のロールバック）</b>の三重制約があるから。本編はこの制約下での段階移行を、フェーズ・戦略・データ移行・撤退基準の4点で構造化する。</p>
+    <p class="lead">本編はシリーズの「深掘り編」。②④が「移行先の作り方」、本編が「そこへの渡り方」。移行時のデータの真正性は<b>データインテグリティ編</b>に、移行後の継続運用は別途「運用編（予定）」に接続する。</p>
+  </div>
+
+  <!-- 0 スコープと網羅性 -->
+  <section>
+    <h2>このプレイブックのスコープと網羅性の根拠</h2>
+    <h3>スコープ宣言（対象と対象外）</h3>
+    <table>
+      <thead><tr><th>区分</th><th>内容</th></tr></thead>
+      <tbody>
+        <tr><td><b>対象</b></td><td>稼働中のオンプレ臨床検査部門システム（LIS）を AWS クラウドへ移す<b>段階移行の設計</b>。フェーズ分解、AWS 7R の当てはめ、データ移行の手段と検証、並行稼働・カットオーバー・ロールバックの判定基準。</td></tr>
+        <tr><td><b>対象外</b></td><td>① クラウドの<b>あるべき設計・実装</b>（アーキ・認証・暗号）→ シリーズ<b>②④</b>。② 移行時に保つべき<b>記録の真正性（ALCOA+）</b>の詳細 → <b>データインテグリティ編</b>。③ 移行後の<b>定常運用・監視・SLA</b> → 運用編（予定）。④ 個別製品の移行手順書（ベンダー依存）。</td></tr>
+      </tbody>
+    </table>
+    <h3>網羅性の根拠 — なぜ「これで足りる」と言えるか</h3>
+    <p>移行の失敗は「手順の抜け」より「<b>どの軸で見落としたか</b>」で起きる。本編は 2 軸で機械的に押さえる。</p>
+    <ul>
+      <li><b>軸1：時間軸（移行ライフサイクル 5 フェーズ）</b>＝評価 → PoC → 並行稼働 → 切替 → 旧環境廃止。着手前から廃止までの<b>全段階</b>を通す（§2）。</li>
+      <li><b>軸2：移行戦略（AWS 7R）</b>＝Rehost / Replatform / Refactor / Repurchase / Retire / Retain / Relocate。LIS を構成する各要素を<b>7 通りの選択肢に必ず分類</b>する（§3）。「全部一度に作り直す」を避け、要素ごとに最適な R を選ぶ。</li>
+    </ul>
+    <p class="lead">この2軸で「いつ・どの要素を・どの戦略で動かすか」を漏れなく配置する。残リスクは<b>「①追加技術／②運用／③契約・SLA／④受容」の4分類</b>で引き取り先を明示する。</p>
+  </section>
+
+  <!-- 1 三重制約 -->
+  <section>
+    <h2><span class="n">1</span>検査システム移行の三重制約</h2>
+    <table>
+      <thead><tr><th>制約</th><th>意味</th><th>移行設計への要求</th></tr></thead>
+      <tbody>
+        <tr><td><b>止められない</b></td><td>救急・時間外・休日も検査は走る。長時間のダウンタイムは患者安全に直結</td><td>ダウンタイムを分単位に抑える切替設計、または無停止の並行稼働。深夜帯の短時間カットオーバー窓を確保</td></tr>
+        <tr><td><b>間違えられない</b></td><td>検査結果は診断の根拠。移行時のデータ欠落・変換誤り・取り違えは誤診に直結</td><td>移行リハーサルでの全件突合、変換ロジックの検証、移行中の記録の真正性維持（ALCOA+）</td></tr>
+        <tr><td><b>戻れないと困る</b></td><td>切替後に重大障害が出ても「昨日に戻す」が効かないと業務が止まる</td><td>明確な<b>ロールバック基準</b>と、旧環境を一定期間 Retain（即座に戻せる状態）で保持</td></tr>
+      </tbody>
+    </table>
+    <div class="note"><b>この三重制約が、移行を「ビッグバン（一括切替）」でなく「段階移行」に向かわせる。</b> 一度に全部切り替えると、止まった時の影響が全面化し、戻すのも全面ロールバックになる。要素ごと・段階ごとに移すことで、影響とロールバックの範囲を小さく保つ。</div>
+  </section>
+
+  <!-- 2 5フェーズ -->
+  <section>
+    <h2><span class="n">2</span>移行の 5 フェーズ</h2>
+    <div class="phases">
+      <div class="s"><div class="ph">Phase 1</div><div class="t">評価</div><div class="d">現行棚卸し・依存関係・データ量・装置IF・規制要件の把握</div></div>
+      <div class="a">→</div>
+      <div class="s"><div class="ph">Phase 2</div><div class="t">PoC</div><div class="d">小範囲で技術検証。性能・連携・データ変換を実証</div></div>
+      <div class="a">→</div>
+      <div class="s"><div class="ph">Phase 3</div><div class="t">並行稼働</div><div class="d">新旧を一定期間並走、結果を突合し新環境の信頼を積む</div></div>
+      <div class="a">→</div>
+      <div class="s"><div class="ph">Phase 4</div><div class="t">切替</div><div class="d">短時間カットオーバー。判定基準クリアで本番を新へ</div></div>
+      <div class="a">→</div>
+      <div class="s"><div class="ph">Phase 5</div><div class="t">旧環境廃止</div><div class="d">安定確認後に旧を Retire。それまでは Retain で即復帰可能に</div></div>
+    </div>
+    <h3>各フェーズの要点</h3>
+    <table>
+      <thead><tr><th>Phase</th><th>やること</th><th>抜けやすい点</th></tr></thead>
+      <tbody>
+        <tr><td><b>1 評価</b></td><td>アプリ/データ/装置IFの棚卸し、依存関係マップ、データ量と保存期間、規制要件（3省2GL・検体検査精度）、各要素の 7R 仮決め</td><td>分析装置との独自プロトコル/ファイル連携、外部システム（電子カルテ・会計）連携の洗い出し漏れ</td></tr>
+        <tr><td><b>2 PoC</b></td><td>代表ワークロードで性能・スループット・連携・データ変換を小範囲実証。コスト試算の前提取得</td><td>本番のピーク負荷（朝の検体集中）を模さず「動いた」で満足する</td></tr>
+        <tr><td><b>3 並行稼働</b></td><td>新旧を同時に動かし、同一入力に対する結果を突合。差分ゼロを一定期間維持して新環境の信頼を確立</td><td>並行期間が短すぎる／突合を一部だけにする（全件・全項目で照合）</td></tr>
+        <tr><td><b>4 切替</b></td><td>判定基準クリアを確認し、深夜等の短時間窓でカットオーバー。ロールバック手順を待機</td><td>切替判定基準を事前に数値で決めていない（後述）</td></tr>
+        <tr><td><b>5 旧環境廃止</b></td><td>本番安定（例：N 週間無重大障害）を確認後、旧を Retire。法定保存データは新環境/アーカイブへ移管済みを確認</td><td>旧を早く消しすぎて戻れない／保存義務データの移管確認漏れ</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 3 7R -->
+  <section>
+    <h2><span class="n">3</span>AWS 7R を検査業務に当てはめる</h2>
+    <p>「全部 Refactor（作り直し）」は時間も金もかかり、検査停止リスクも最大。LIS を構成する要素ごとに、適切な R を選ぶ。</p>
+    <table>
+      <thead><tr><th>戦略</th><th>内容</th><th>検査システムでの当てはめ例</th></tr></thead>
+      <tbody>
+        <tr><td><span class="r">Rehost</span><br>（Lift &amp; Shift）</td><td>変更せずそのままクラウドへ。最速・低リスク</td><td>まず止血的に EC2 へ載せ替え、後で段階的に最適化。MGN で自動移送</td></tr>
+        <tr><td><span class="r">Replatform</span></td><td>作り直さず一部を最適化（DB をマネージドに等）</td><td>オンプレ DB → Amazon RDS、ファイル共有 → S3。コスト・運用負荷を下げる現実解</td></tr>
+        <tr><td><span class="r">Refactor</span></td><td>クラウドネイティブに再設計（マルチテナント SaaS 化等）</td><td>標準仕様 1.0版が求める SaaS/FHIR/ゼロトラストへの本格対応。効果大だが工数・リスク大、段階導入</td></tr>
+        <tr><td><span class="r">Repurchase</span></td><td>自前運用を SaaS/第三者サービスに置換</td><td>周辺機能（帳票・通知・認証基盤）をマネージド/SaaS に寄せる</td></tr>
+        <tr><td><span class="r">Retain</span></td><td>当面は現環境に残す（まだ移さない）</td><td>装置直結の制御部や移行リスクが高い部分は残置。<b>切替後の旧環境も一定期間 Retain＝即ロールバック用</b></td></tr>
+        <tr><td><span class="r">Retire</span></td><td>不要なものを廃止</td><td>使われていない旧機能・重複システムを移行を機に整理</td></tr>
+        <tr><td><span class="r">Relocate</span></td><td>仮想基盤ごと大量移送（VMware 等）</td><td>多数サーバを一括でクラウド版基盤へ。大規模検査センターの一斉移送</td></tr>
+      </tbody>
+    </table>
+    <div class="callout">
+      <div class="lab">実務の定石</div>
+      <b>Rehost/Replatform で素早く移し、その後フェーズを分けて Refactor</b> が検査システムでは安全。最初から Refactor（フル作り直し）に走ると、移行と新規開発のリスクが同時に乗る。まず動かし、止血してから、標準仕様 1.0版が求めるクラウドネイティブ化（②参照）へ段階的に進める。
+    </div>
+  </section>
+
+  <!-- 4 データ移行 -->
+  <section>
+    <h2><span class="n">4</span>データ移行 — 手段・変換・リハーサル</h2>
+    <h3>AWS の移行サービス（使い分け）</h3>
+    <table>
+      <thead><tr><th>用途</th><th>サービス</th><th>勘どころ</th></tr></thead>
+      <tbody>
+        <tr><td>サーバの載せ替え（Rehost）</td><td>AWS Application Migration Service（MGN）</td><td>物理/仮想サーバを自動変換して AWS でネイティブ稼働。継続レプリケーションで切替直前まで同期</td></tr>
+        <tr><td>DB の移行</td><td>AWS Database Migration Service（DMS）</td><td><b>移行中も現用 DB は稼働</b>＝ダウンタイム最小。継続レプリケーションで並行稼働を支える。異種DB変換も可</td></tr>
+        <tr><td>大容量ファイル/検査画像の転送</td><td>AWS DataSync</td><td>オンプレ → S3/EFS/FSx を高速・暗号化・<b>転送時整合性チェック付き</b>。病理画像など大容量に</td></tr>
+        <tr><td>標準コード/形式の変換</td><td>（アプリ層）</td><td>JLAC10→JLAC11、ローカルコード→標準コード、HL7 v2→FHIR の変換は移行の核心。詳細は実装側で（②参照）</td></tr>
+      </tbody>
+    </table>
+    <h3>移行リハーサルと整合性検証（間違えられない制約への答え）</h3>
+    <ul>
+      <li><b>本番相当データでリハーサル</b>：一度で成功させようとしない。リハーサルを繰り返し、所要時間・失敗パターン・ロールバック手順を実測する</li>
+      <li><b>全件・全項目の突合</b>：移行前後で件数・キー・値・コード変換結果を機械照合。サンプリングで済ませない（検査値の取り違えは1件でも誤診に繋がる）</li>
+      <li><b>移行中の真正性維持</b>：誰が・いつ移したかの記録、移行データの改ざん検知（ハッシュ）、原本性の保証。<b>ALCOA+ をデータ移行にも適用</b>（データインテグリティ編）</li>
+      <li><b>保存義務データの移管確認</b>：法定保存期間中の記録が新環境/アーカイブに完全移管されたことを、旧環境廃止の前提条件にする</li>
+    </ul>
+    <div class="note"><b>DMS の「移行中も現用 DB が動く」特性が、検査システムの並行稼働を可能にする。</b> 継続レプリケーションで新環境を最新に保ちつつ、本番は旧で走らせ、結果を突合 → 信頼が積めたら切替。これが「止めずに移す」の技術的な土台。</div>
+  </section>
+
+  <!-- 5 並行稼働・切替・ロールバック -->
+  <section>
+    <h2><span class="n">5</span>並行稼働・カットオーバー・ロールバック基準</h2>
+    <p>切替は「気合い」でなく<b>事前に数値で決めた判定基準</b>で実行・中止する。基準を決めずに当日判断すると、戻すべき場面で戻せない。</p>
+    <h3>切替 GO の判定基準（例）</h3>
+    <ul>
+      <li>並行稼働 N 週間、新旧の結果突合で<b>差分ゼロ</b>（または許容範囲内＋原因説明済み）</li>
+      <li>ピーク負荷下で性能 SLA（結果返却時間等）を満たす</li>
+      <li>外部連携（電子カルテ・会計・装置）がすべて疎通確認済み</li>
+      <li>ロールバック手順をリハーサルで実証済み（所要時間が窓に収まる）</li>
+    </ul>
+    <div class="gate">
+      <b>ロールバック基準（事前確定・当日裁量を挟まない）：</b> 切替後一定時間内に「結果が出ない／値が疑わしい／外部連携が落ちる」のいずれかが発生したら、<b>議論せず旧環境へ即戻す</b>。旧環境は廃止前まで Retain で待機。戻す判断の遅れが最大のリスクなので、トリガーと実行者を事前に決めておく。
+    </div>
+    <p class="lead">並行稼働は「念のため」でなく、新環境の信頼を数値で積み上げる工程。突合差分が説明できない間は切替しない——これが「間違えられない」制約への規律。</p>
+  </section>
+
+  <!-- 6 落とし穴 -->
+  <section>
+    <h2><span class="n">6</span>よくある落とし穴（移行が失敗する典型）</h2>
+    <ul class="chk">
+      <li><b>ビッグバン一括切替</b> → 止まった時の影響とロールバックが全面化。段階移行で範囲を小さく。</li>
+      <li><b>装置IF・外部連携の洗い出し漏れ</b> → 切替後に「あの連携が動かない」。Phase 1 評価で依存関係マップを作り切る。</li>
+      <li><b>並行稼働が短い／突合がサンプリング</b> → 信頼が積めないまま切替。全件・全項目・十分な期間で。</li>
+      <li><b>ロールバック基準を当日判断にする</b> → 戻すべき場面で迷い、被害拡大。トリガー・実行者を事前確定。</li>
+      <li><b>移行リハーサルを省く</b> → 本番で初見の失敗。リハーサルで所要時間と失敗パターンを潰す。</li>
+      <li><b>旧環境を早く消す</b> → 戻れない。安定確認＋保存義務データ移管確認まで Retain。</li>
+      <li><b>最初から Refactor 全振り</b> → 移行と新規開発のリスクが同時に乗る。Rehost/Replatform で止血が先。</li>
+      <li><b>移行データの真正性を記録しない</b> → 「正しく移った」が証明できない。ALCOA+ を移行にも（DI編）。</li>
+    </ul>
+  </section>
+
+  <footer>
+    <div class="refs">
+      <h3>出典（一次資料・公的情報）</h3>
+      <ul>
+        <li>AWS Prescriptive Guidance「<a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/large-migration-guide/migration-strategies.html" target="_blank" rel="noopener">Migration strategies（7 Rs）</a>」— Rehost / Replatform / Refactor / Repurchase / Retire / Retain / Relocate</li>
+        <li>AWS「<a href="https://aws.amazon.com/application-migration-service/" target="_blank" rel="noopener">Application Migration Service（MGN）</a>」— サーバ自動移送・継続レプリケーション</li>
+        <li>AWS「<a href="https://aws.amazon.com/dms/" target="_blank" rel="noopener">Database Migration Service（DMS）</a>」— 移行中も現用 DB 稼働、継続レプリケーション</li>
+        <li>AWS「<a href="https://aws.amazon.com/datasync/" target="_blank" rel="noopener">DataSync</a>」— オンプレ→S3/EFS/FSx の高速・暗号化・整合性チェック付き転送</li>
+        <li>厚生労働省「<a href="https://www.mhlw.go.jp/stf/shingi/0000516275_00006.html" target="_blank" rel="noopener">医療情報システムの安全管理に関するガイドライン 第6.0版</a>」— 移行時の安全管理・外部サービス利用</li>
+        <li>改正医療法（2018年施行）検体検査の精度の確保 — 移行後も精度管理を継続する前提</li>
+        <li>（接続）シリーズ ②法規制対応と技術要件 ／ ④セキュア実装 ／ データインテグリティ編（移行時の ALCOA+）</li>
+      </ul>
+    </div>
+    <div class="disc">本ガイドは 2026 年5月時点の公的・公式情報と AWS 公式ドキュメントに基づく一般整理であり、特定の組織・案件における適合性や十分性を保証するものではない。AWS のサービス名・仕様は改定される。移行計画は対象システムの実態・規制要件・ベンダー仕様に基づき、各原典・専門家の確認を前提に策定すること。</div>
+    <div class="sig">作成：X Harumi ／ 医療DX シリーズ・移行プレイブック ／ 最終更新：2026年5月</div>
+  </footer>
+
+</div>
+
+<div style="max-width:1000px;margin:8px auto 40px;padding:0 20px;font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif">
+  <div style="background:#0e4d92;color:#fff;border-radius:12px;padding:20px 24px">
+    <div style="font-size:11.5px;letter-spacing:.16em;color:#c9d6e8;font-weight:700;margin-bottom:7px">ABOUT</div>
+    <p style="margin:0;font-size:13.5px;line-height:1.85">本シリーズは、医療情報システムの開発・クラウド化を手がける <b style="color:#c9a96e">X Harumi</b> が、公的な一次資料を根拠条項まで遡って再整理したものです。AI 活用支援・業務効率化・DX 推進・システム開発を提供しています。</p>
+  </div>
+  <div style="text-align:center;color:#94a3b4;font-size:11px;margin-top:10px">最終更新：2026-05-25 ／ 次回レビュー目安：2026-08-31 ／ © X Harumi</div>
+</div>
+
+</body>
+</html>
